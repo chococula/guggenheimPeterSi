@@ -35,6 +35,8 @@
   .bar .in{max-width:720px;margin:0 auto;display:flex;gap:8px;align-items:center}
   .bar .sum{flex:1;font-size:13px;color:var(--sub)}
   details{font-size:13px;color:var(--sub)} details summary{cursor:pointer}
+  #term{margin:0;height:220px;overflow:auto;background:#0d1117;color:#c9d1d9;border-radius:8px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;word-break:break-all}
+  #term .t{color:#6e7681} #term .tx{color:#79c0ff} #term .rx{color:#7ee787} #term .er{color:#ff7b72} #term .in{color:#e3b341}
 </style>
 </head>
 <body>
@@ -63,6 +65,16 @@
       <button id="retry">실패 항목만 선택</button>
       <button id="clear">전체 삭제</button>
     </div>
+  </section>
+
+  <section class="card">
+    <h2>로그 (TV 응답 / 오류)</h2>
+    <pre id="term"></pre>
+    <div class="row">
+      <button id="copyLog">로그 복사</button>
+      <button id="clearLog">지우기</button>
+    </div>
+    <div class="hint"><span style="color:#79c0ff">→ 보냄</span> · <span style="color:#7ee787">← 받음</span> · <span style="color:#ff7b72">오류</span> (페어링 키는 가려서 표시)</div>
   </section>
 
   <details class="card">
@@ -119,38 +131,72 @@ function parseIps(text){
   return {ips, bad};
 }
 
-// ---------- TV 통신
-const wait = (ms, msg) => new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms));
+// ---------- 로그 터미널
+const term = $("term");
+const hhmmss = () => new Date().toTimeString().slice(0, 8);
+function log(ip, kind, text){
+  const cls = {tx:"tx", rx:"rx", er:"er", in:"in"}[kind] || "";
+  const arrow = {tx:"→", rx:"←", er:"✗", in:"•"}[kind] || " ";
+  const line = document.createElement("div");
+  line.innerHTML = `<span class="t">${hhmmss()} ${ip}</span> <span class="${cls}">${arrow} </span>`;
+  line.append(document.createTextNode(text));
+  term.appendChild(line);
+  while (term.childElementCount > 1000) term.firstChild.remove();
+  term.scrollTop = term.scrollHeight;
+}
+// 페어링 키/서명은 로그에 남기지 않음
+const redact = s => s.replace(/("client-key"\s*:\s*")[^"]*"/g, '$1***"').replace(/("signature"\s*:\s*")[^"]*"/g, '$1***"');
+$("clearLog").onclick = () => term.replaceChildren();
+$("copyLog").onclick = async () => {
+  try { await navigator.clipboard.writeText(term.innerText); $("copyLog").textContent = "복사됨"; }
+  catch { const r = document.createRange(); r.selectNodeContents(term); getSelection().removeAllRanges(); getSelection().addRange(r); $("copyLog").textContent = "선택됨 (Ctrl+C)"; }
+  setTimeout(() => $("copyLog").textContent = "로그 복사", 1500);
+};
+log("page", "in", `${location.origin || location.protocol} · ${navigator.userAgent}`);
 
 function applyMode(ip, mode, progress){
   return new Promise((resolve, reject) => {
     let ws, done = false, timer;
     const pending = {};
+    const send = obj => { const s = JSON.stringify(obj); log(ip, "tx", redact(s)); ws.send(s); };
     const finish = (err, val) => {
       if (done) return; done = true; clearTimeout(timer);
+      err ? log(ip, "er", err.message) : log(ip, "in", `완료: pictureMode = ${val}`);
       try { ws.close(); } catch {}
       err ? reject(err) : resolve(val);
     };
     const arm = (ms, text) => { clearTimeout(timer); timer = setTimeout(() => finish(new Error(text)), ms); };
     const request = (id, uri, payload) => new Promise(res => {
       pending[id] = res;
-      ws.send(JSON.stringify({id, type:"request", uri:"ssap://" + uri, payload}));
+      send({id, type:"request", uri:"ssap://" + uri, payload});
     });
 
     progress("연결 중...");
-    try { ws = new WebSocket(`wss://${ip}:3001`); } catch (e) { return finish(e); }
+    const url = `wss://${ip}:3001`;
+    log(ip, "in", `연결 시도 ${url} (저장된 키: ${keys[ip] ? "있음" : "없음 → 첫 페어링"})`);
+    try { ws = new WebSocket(url); } catch (e) { return finish(e); }
     arm(CONNECT_MS, "연결 시간 초과 (TV 꺼짐/네트워크 확인)");
 
-    ws.onerror = () => finish(new Error("연결 실패 — 인증서 미허용/TV 꺼짐/네트워크 차단"));
-    ws.onclose = () => finish(new Error("연결이 끊어짐"));
+    ws.onerror = () => {
+      log(ip, "er", "WebSocket error (브라우저는 상세 원인을 알려주지 않음)");
+      log(ip, "in", `힌트: 새 탭에서 https://${ip}:3001 을 열어 인증서를 허용했는지, "로컬 네트워크 접근"을 허용했는지, TV 전원/같은 네트워크인지 확인`);
+      finish(new Error("연결 실패 — 인증서 미허용/TV 꺼짐/네트워크 차단"));
+    };
+    ws.onclose = ev => {
+      log(ip, done ? "in" : "er", `연결 종료 code=${ev.code} reason=${ev.reason || "-"} clean=${ev.wasClean}`);
+      finish(new Error(`연결이 끊어짐 (code ${ev.code})`));
+    };
     ws.onopen = () => {
+      log(ip, "in", "연결됨, 등록 요청 전송");
       const reg = JSON.parse(JSON.stringify(REGISTRATION));
       if (keys[ip]) reg.payload["client-key"] = keys[ip];
       arm(REQ_MS, "등록 응답 없음");
-      ws.send(JSON.stringify(reg));
+      send(reg);
     };
     ws.onmessage = async ev => {
-      const msg = JSON.parse(ev.data);
+      log(ip, "rx", redact(String(ev.data)));
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return log(ip, "er", "JSON이 아닌 응답"); }
       if (pending[msg.id]) { const r = pending[msg.id]; delete pending[msg.id]; return r(msg); }
       if (msg.type === "response" && msg.payload?.pairingType === "PROMPT"){
         progress("TV 화면에서 승인 대기 중...");
