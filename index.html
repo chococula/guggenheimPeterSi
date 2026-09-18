@@ -28,6 +28,7 @@
   .tv .ip{font-weight:600}
   .tv .msg{font-size:12px;color:var(--sub);word-break:break-all}
   .tv a{font-size:12px;color:var(--pri)}
+  body.bridge .tv a,body.bridge details.cert{display:none}
   .badge{font-size:12px;padding:2px 10px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
   .st-대기{color:var(--sub)} .st-진행{color:var(--busy)} .st-성공{color:var(--ok)} .st-실패{color:var(--fail)}
   .x{border:0;background:none;color:var(--sub);padding:4px 8px;font-size:18px}
@@ -42,7 +43,7 @@
 <body>
 <header>
   <h1>LG TV Picture Mode 일괄 변경</h1>
-  <p>IP를 넣고 원하는 화질 모드를 선택해 여러 대에 한 번에 적용</p>
+  <p id="sub">IP를 넣고 원하는 화질 모드를 선택해 여러 대에 한 번에 적용</p>
 </header>
 <main>
   <section class="card">
@@ -77,7 +78,7 @@
     <div class="hint"><span style="color:#79c0ff">→ 보냄</span> · <span style="color:#7ee787">← 받음</span> · <span style="color:#ff7b72">오류</span> (페어링 키는 가려서 표시)</div>
   </section>
 
-  <details class="card">
+  <details class="card cert">
     <summary>처음 사용 전 꼭 읽기 (인증서 허용)</summary>
     <p>TV는 자체 서명 인증서를 쓰기 때문에, 브라우저가 처음 한 번은 허용해야 연결됩니다.
     TV 목록의 <b>인증서 허용</b> 링크를 열고 "고급 → 계속 진행"을 누른 뒤 이 페이지로 돌아오세요 (TV별 1회).
@@ -154,7 +155,28 @@ $("copyLog").onclick = async () => {
 };
 log("page", "in", `${location.origin || location.protocol} · ${navigator.userAgent}`);
 
+// PC의 tv_bridge.py 로 접속했으면(같은 출처에 /api 존재) TV 통신을 서버가 대신함 → 인증서/브라우저 제한 없음
+let bridge = false;
+fetch("api/ping").then(r => r.ok ? r.json() : null).then(j => {
+  if (j?.bridge){
+    bridge = true;
+    log("page", "in", "브리지 모드: PC 서버(tv_bridge.py)가 TV와 통신합니다. 인증서 허용 불필요.");
+    $("sub").textContent = "브리지 모드 — 인증서 허용 없이 PC 서버를 통해 적용";
+    document.body.classList.add("bridge");
+  }
+}).catch(() => {});
+
+async function applyViaBridge(ip, mode, progress){
+  progress("PC 서버 경유 적용 중...");
+  const r = await fetch("api/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ip, mode})});
+  const d = await r.json();
+  (d.log || []).forEach(([kind, text]) => log(ip, kind, text));
+  if (!d.ok) throw new Error(d.error || "실패");
+  return d.mode;
+}
+
 function applyMode(ip, mode, progress){
+  if (bridge) return applyViaBridge(ip, mode, progress);
   return new Promise((resolve, reject) => {
     let ws, done = false, timer;
     const pending = {};
@@ -175,7 +197,7 @@ function applyMode(ip, mode, progress){
     const url = `wss://${ip}:3001`;
     log(ip, "in", `연결 시도 ${url} (저장된 키: ${keys[ip] ? "있음" : "없음 → 첫 페어링"})`);
     try { ws = new WebSocket(url); } catch (e) { return finish(e); }
-    arm(CONNECT_MS, "연결 시간 초과 (TV 꺼짐/네트워크 확인)");
+    arm(CONNECT_MS, "연결 시간 초과 — 브라우저가 로컬 네트워크 접근을 막았을 수 있음. tv_bridge.py 로 접속하면 해결됩니다");
 
     ws.onerror = () => {
       log(ip, "er", "WebSocket error (브라우저는 상세 원인을 알려주지 않음)");
