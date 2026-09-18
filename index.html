@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TV Picture Mode</title>
+<style>
+  :root{--bg:#f4f6f8;--card:#fff;--text:#1f2328;--sub:#656d76;--line:#d8dee4;--pri:#0b6e4f;--ok:#1a7f37;--fail:#cf222e;--busy:#9a6700}
+  @media (prefers-color-scheme:dark){:root{--bg:#0d1117;--card:#161b22;--text:#e6edf3;--sub:#8b949e;--line:#30363d;--pri:#2ea36f;--ok:#3fb950;--fail:#f85149;--busy:#d29922}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,"Malgun Gothic",sans-serif}
+  header{background:var(--pri);color:#fff;padding:14px 16px}
+  header h1{margin:0;font-size:18px}
+  header p{margin:2px 0 0;font-size:12px;opacity:.85}
+  main{max-width:720px;margin:0 auto;padding:12px 16px 90px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+  .card h2{margin:0 0 8px;font-size:14px;color:var(--sub);font-weight:600}
+  textarea,select,input{width:100%;font:inherit;color:var(--text);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px}
+  textarea{height:84px;resize:vertical}
+  .row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:8px 14px;cursor:pointer}
+  button.pri{background:var(--pri);border-color:var(--pri);color:#fff;font-weight:600}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .hint{font-size:12px;color:var(--sub);margin-top:6px}
+  .tv{display:flex;align-items:center;gap:10px;padding:10px 4px;border-top:1px solid var(--line)}
+  .tv:first-child{border-top:0}
+  .tv .info{flex:1;min-width:0}
+  .tv .ip{font-weight:600}
+  .tv .msg{font-size:12px;color:var(--sub);word-break:break-all}
+  .tv a{font-size:12px;color:var(--pri)}
+  .badge{font-size:12px;padding:2px 10px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
+  .st-대기{color:var(--sub)} .st-진행{color:var(--busy)} .st-성공{color:var(--ok)} .st-실패{color:var(--fail)}
+  .x{border:0;background:none;color:var(--sub);padding:4px 8px;font-size:18px}
+  .bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px}
+  .bar .in{max-width:720px;margin:0 auto;display:flex;gap:8px;align-items:center}
+  .bar .sum{flex:1;font-size:13px;color:var(--sub)}
+  details{font-size:13px;color:var(--sub)} details summary{cursor:pointer}
+</style>
+</head>
+<body>
+<header>
+  <h1>LG TV Picture Mode 일괄 변경</h1>
+  <p>IP를 넣고 원하는 화질 모드를 선택해 여러 대에 한 번에 적용</p>
+</header>
+<main>
+  <section class="card">
+    <h2>TV IP 추가</h2>
+    <textarea id="ips" placeholder="172.16.1.113&#10;172.16.1.100-120&#10;172.16.2.0/24"></textarea>
+    <div class="hint">줄바꿈/콤마/공백 구분 · 범위 <code>172.16.1.100-120</code> · 대역 <code>172.16.1.0/24</code></div>
+    <div class="row"><button class="pri" id="add">목록에 추가</button></div>
+  </section>
+
+  <section class="card">
+    <h2>적용할 Picture Mode</h2>
+    <select id="mode"></select>
+  </section>
+
+  <section class="card">
+    <h2>TV 목록 <span id="count"></span></h2>
+    <div id="list"></div>
+    <div class="row">
+      <button id="selAll">전체 선택/해제</button>
+      <button id="retry">실패 항목만 선택</button>
+      <button id="clear">전체 삭제</button>
+    </div>
+  </section>
+
+  <details class="card">
+    <summary>처음 사용 전 꼭 읽기 (인증서 허용)</summary>
+    <p>TV는 자체 서명 인증서를 쓰기 때문에, 브라우저가 처음 한 번은 허용해야 연결됩니다.
+    TV 목록의 <b>인증서 허용</b> 링크를 열고 "고급 → 계속 진행"을 누른 뒤 이 페이지로 돌아오세요 (TV별 1회).
+    이후 처음 적용할 때 TV 화면에 뜨는 승인 창을 리모컨으로 허용하면 페어링 키가 이 브라우저에 저장됩니다.</p>
+    <p>브라우저가 "로컬 네트워크 접근" 허용을 물으면 허용하세요. 페어링 키·IP 목록은 이 브라우저(localStorage)에만 저장되고 외부로 전송되지 않습니다.</p>
+  </details>
+</main>
+
+<div class="bar"><div class="in">
+  <span class="sum" id="sum"></span>
+  <button class="pri" id="apply">선택 항목 적용</button>
+</div></div>
+
+<script>
+const REGISTRATION = {"type": "register", "id": "register_0", "payload": {"forcePairing": false, "manifest": {"appVersion": "1.1", "manifestVersion": 1, "permissions": ["LAUNCH", "LAUNCH_WEBAPP", "APP_TO_APP", "CLOSE", "TEST_OPEN", "TEST_PROTECTED", "CONTROL_AUDIO", "CONTROL_DISPLAY", "CONTROL_INPUT_JOYSTICK", "CONTROL_INPUT_MEDIA_RECORDING", "CONTROL_INPUT_MEDIA_PLAYBACK", "CONTROL_INPUT_TV", "CONTROL_POWER", "CONTROL_TV_SCREEN", "READ_APP_STATUS", "READ_CURRENT_CHANNEL", "READ_INPUT_DEVICE_LIST", "READ_NETWORK_STATE", "READ_RUNNING_APPS", "READ_TV_CHANNEL_LIST", "WRITE_NOTIFICATION_TOAST", "READ_POWER_STATE", "READ_COUNTRY_INFO", "CONTROL_INPUT_TEXT", "CONTROL_MOUSE_AND_KEYBOARD", "READ_INSTALLED_APPS", "READ_SETTINGS", "READ_STORAGE_DEVICE_LIST"], "signatures": [{"signature": "eyJhbGdvcml0aG0iOiJSU0EtU0hBMjU2Iiwia2V5SWQiOiJ0ZXN0LXNpZ25pbmctY2VydCIsInNpZ25hdHVyZVZlcnNpb24iOjF9.hrVRgjCwXVvE2OOSpDZ58hR+59aFNwYDyjQgKk3auukd7pcegmE2CzPCa0bJ0ZsRAcKkCTJrWo5iDzNhMBWRyaMOv5zWSrthlf7G128qvIlpMT0YNY+n/FaOHE73uLrS/g7swl3/qH/BGFG2Hu4RlL48eb3lLKqTt2xKHdCs6Cd4RMfJPYnzgvI4BNrFUKsjkcu+WD4OO2A27Pq1n50cMchmcaXadJhGrOqH5YmHdOCj5NSHzJYrsW0HPlpuAx/ECMeIZYDh6RMqaFM2DXzdKX9NmmyqzJ3o/0lkk/N97gfVRLW5hA29yeAwaCViZNCP8iC9aO0q9fQojoa7NQnAtw==", "signatureVersion": 1}], "signed": {"appId": "com.lge.test", "created": "20140509", "localizedAppNames": {"": "LG Remote App", "ko-KR": "리모컨 앱", "zxx-XX": "ЛГ Rэмotэ AПП"}, "localizedVendorNames": {"": "LG Electronics"}, "permissions": ["TEST_SECURE", "CONTROL_INPUT_TEXT", "CONTROL_MOUSE_AND_KEYBOARD", "READ_INSTALLED_APPS", "READ_LGE_SDX", "READ_NOTIFICATIONS", "SEARCH", "WRITE_SETTINGS", "WRITE_NOTIFICATION_ALERT", "CONTROL_POWER", "READ_CURRENT_CHANNEL", "READ_RUNNING_APPS", "READ_UPDATE_INFO", "UPDATE_FROM_REMOTE_APP", "READ_LGE_TV_INPUT_EVENTS", "READ_TV_CURRENT_TIME"], "serial": "2f930e2d2cfe083771f68e4fe7bb07", "vendorId": "com.lge"}}, "pairingType": "PROMPT"}};
+const MODES = ["filmMaker","cinema","expert1","expert2","standard","vivid","eco","game","sports","hdrCinema","hdrStandard","hdrVivid"];
+const MAX_PARALLEL = 10, CONNECT_MS = 10000, REQ_MS = 5000, PAIR_MS = 60000;
+
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d){ try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+};
+let tvs = store.get("tvs", []);      // [{ip, sel, status, msg}]
+let keys = store.get("keys", {});    // {ip: clientKey}
+let running = false;
+
+$("mode").innerHTML = MODES.map(m => `<option>${m}</option>`).join("");
+$("mode").value = store.get("mode", "filmMaker");
+$("mode").onchange = () => store.set("mode", $("mode").value);
+
+// ---------- IP 파싱
+function parseIps(text){
+  const ips = [], bad = [];
+  for (const t of text.split(/[\s,;]+/).filter(Boolean)){
+    let m;
+    if ((m = t.match(/^(\d+\.\d+\.\d+\.)(\d+)-(\d+)$/))){
+      const a = +m[2], b = +m[3];
+      if (a > b || b > 255) { bad.push(t); continue; }
+      for (let i = a; i <= b; i++) ips.push(m[1] + i);
+    } else if ((m = t.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)\/(\d+)$/))){
+      const p = +m[5]; const o = m.slice(1,5).map(Number);
+      if (o.some(n => n > 255) || p < 16 || p > 30) { bad.push(t); continue; }
+      const base = ((o[0]<<24)|(o[1]<<16)|(o[2]<<8)|o[3]) >>> 0;
+      const size = 2 ** (32 - p), net = base - (base % size);
+      for (let i = 1; i < size - 1; i++){ const v = net + i; ips.push([v>>>24,(v>>>16)&255,(v>>>8)&255,v&255].join(".")); }
+    } else if ((m = t.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)) && m.slice(1).every(n => +n <= 255)){
+      ips.push(t);
+    } else bad.push(t);
+  }
+  return {ips, bad};
+}
+
+// ---------- TV 통신
+const wait = (ms, msg) => new Promise((_, rej) => setTimeout(() => rej(new Error(msg)), ms));
+
+function applyMode(ip, mode, progress){
+  return new Promise((resolve, reject) => {
+    let ws, done = false, timer;
+    const pending = {};
+    const finish = (err, val) => {
+      if (done) return; done = true; clearTimeout(timer);
+      try { ws.close(); } catch {}
+      err ? reject(err) : resolve(val);
+    };
+    const arm = (ms, text) => { clearTimeout(timer); timer = setTimeout(() => finish(new Error(text)), ms); };
+    const request = (id, uri, payload) => new Promise(res => {
+      pending[id] = res;
+      ws.send(JSON.stringify({id, type:"request", uri:"ssap://" + uri, payload}));
+    });
+
+    progress("연결 중...");
+    try { ws = new WebSocket(`wss://${ip}:3001`); } catch (e) { return finish(e); }
+    arm(CONNECT_MS, "연결 시간 초과 (TV 꺼짐/네트워크 확인)");
+
+    ws.onerror = () => finish(new Error("연결 실패 — 인증서 미허용/TV 꺼짐/네트워크 차단"));
+    ws.onclose = () => finish(new Error("연결이 끊어짐"));
+    ws.onopen = () => {
+      const reg = JSON.parse(JSON.stringify(REGISTRATION));
+      if (keys[ip]) reg.payload["client-key"] = keys[ip];
+      arm(REQ_MS, "등록 응답 없음");
+      ws.send(JSON.stringify(reg));
+    };
+    ws.onmessage = async ev => {
+      const msg = JSON.parse(ev.data);
+      if (pending[msg.id]) { const r = pending[msg.id]; delete pending[msg.id]; return r(msg); }
+      if (msg.type === "response" && msg.payload?.pairingType === "PROMPT"){
+        progress("TV 화면에서 승인 대기 중...");
+        return arm(PAIR_MS, "승인 시간 초과 (TV에서 허용 안 함)");
+      }
+      if (msg.type === "registered"){
+        keys[ip] = msg.payload["client-key"]; store.set("keys", keys);
+        try {
+          progress("설정 변경 중..."); arm(REQ_MS * 2, "설정 응답 없음");
+          const set = await request(1, "settings/setSystemSettings", {category:"picture", settings:{pictureMode: mode}});
+          if (!set.payload?.returnValue) return finish(new Error("설정 거부됨: " + JSON.stringify(set.payload)));
+          const get = await request(2, "settings/getSystemSettings", {keys:["pictureMode"], category:"picture"});
+          finish(null, get.payload?.settings?.pictureMode ?? "?");
+        } catch (e) { finish(e); }
+      } else if (msg.type === "error"){
+        finish(new Error(msg.error || "TV 오류"));
+      }
+    };
+  });
+}
+
+// ---------- 화면
+function save(){ store.set("tvs", tvs.map(({ip, sel, status, msg}) => ({ip, sel, status, msg}))); }
+function render(){
+  $("count").textContent = tvs.length ? `(${tvs.length}대)` : "";
+  $("list").innerHTML = tvs.length ? tvs.map((t, i) => `
+    <div class="tv">
+      <input type="checkbox" style="width:auto" data-i="${i}" ${t.sel ? "checked" : ""} ${running ? "disabled" : ""}>
+      <div class="info">
+        <div class="ip">${t.ip}</div>
+        <div class="msg">${t.msg || ""} <a href="https://${t.ip}:3001" target="_blank" rel="noopener">인증서 허용</a></div>
+      </div>
+      <span class="badge st-${t.status}">${t.status}</span>
+      <button class="x" data-del="${i}" ${running ? "disabled" : ""}>×</button>
+    </div>`).join("") : `<div class="hint">추가된 TV가 없습니다.</div>`;
+  const ok = tvs.filter(t => t.status === "성공").length, fail = tvs.filter(t => t.status === "실패").length;
+  const sel = tvs.filter(t => t.sel).length;
+  $("sum").textContent = `선택 ${sel} · 성공 ${ok} · 실패 ${fail}`;
+  $("apply").disabled = running || !sel;
+  $("apply").textContent = running ? "적용 중..." : "선택 항목 적용";
+}
+
+$("list").onchange = e => { const i = e.target.dataset.i; if (i != null){ tvs[i].sel = e.target.checked; save(); render(); } };
+$("list").onclick = e => { const i = e.target.dataset.del; if (i != null){ tvs.splice(i, 1); save(); render(); } };
+
+$("add").onclick = () => {
+  const {ips, bad} = parseIps($("ips").value);
+  for (const ip of ips) if (!tvs.some(t => t.ip === ip)) tvs.push({ip, sel:true, status:"대기", msg:""});
+  save(); render();
+  if (bad.length) alert("인식하지 못한 항목:\n" + bad.join("\n")); else $("ips").value = "";
+};
+$("selAll").onclick = () => { const on = !tvs.every(t => t.sel); tvs.forEach(t => t.sel = on); save(); render(); };
+$("retry").onclick = () => { tvs.forEach(t => t.sel = t.status === "실패"); save(); render(); };
+$("clear").onclick = () => { if (!running && tvs.length && confirm("목록을 모두 삭제할까요?")){ tvs = []; save(); render(); } };
+
+$("apply").onclick = async () => {
+  const mode = $("mode").value, targets = tvs.filter(t => t.sel);
+  if (!targets.length) return;
+  running = true;
+  targets.forEach(t => { t.status = "대기"; t.msg = ""; });
+  render();
+  const queue = [...targets];
+  const worker = async () => {
+    while (queue.length){
+      const t = queue.shift();
+      const upd = (status, msg) => { t.status = status; t.msg = msg; render(); };
+      try {
+        const got = await applyMode(t.ip, mode, m => upd("진행", m));
+        got === mode ? upd("성공", `pictureMode = ${got}`) : upd("실패", `불일치: 요청 ${mode} / 현재 ${got}`);
+      } catch (e) { upd("실패", e.message); }
+    }
+  };
+  await Promise.all(Array.from({length: Math.min(MAX_PARALLEL, targets.length)}, worker));
+  running = false; save(); render();
+};
+
+render();
+</script>
+</body>
+</html>
