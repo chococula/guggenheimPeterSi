@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -29,8 +29,10 @@
   .tv .msg{font-size:12px;color:var(--sub);word-break:break-all}
   .tv a{font-size:12px;color:var(--pri)}
   body.bridge .tv a,body.bridge details.cert{display:none}
+  #warn{display:none;background:#fff4ce;color:#5c4400;border:1px solid #e3b341;border-radius:12px;padding:12px;margin-bottom:12px;font-size:14px}
+  #warn.show{display:block} #warn code{background:rgba(0,0,0,.08);padding:1px 5px;border-radius:4px}
   .badge{font-size:12px;padding:2px 10px;border-radius:99px;border:1px solid currentColor;white-space:nowrap}
-  .st-대기{color:var(--sub)} .st-진행{color:var(--busy)} .st-성공{color:var(--ok)} .st-실패{color:var(--fail)}
+  .st-Pending{color:var(--sub)} .st-Running{color:var(--busy)} .st-OK{color:var(--ok)} .st-Failed{color:var(--fail)}
   .x{border:0;background:none;color:var(--sub);padding:4px 8px;font-size:18px}
   .bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px}
   .bar .in{max-width:720px;margin:0 auto;display:flex;gap:8px;align-items:center}
@@ -42,54 +44,55 @@
 </head>
 <body>
 <header>
-  <h1>LG TV Picture Mode 일괄 변경</h1>
-  <p id="sub">IP를 넣고 원하는 화질 모드를 선택해 여러 대에 한 번에 적용</p>
+  <h1>LG TV Picture Mode Bulk Changer</h1>
+  <p id="sub">Enter TV IPs, pick a picture mode, and apply to many TVs at once</p>
 </header>
 <main>
+  <div id="warn"></div>
   <section class="card">
-    <h2>TV IP 추가</h2>
+    <h2>Add TV IPs</h2>
     <textarea id="ips" placeholder="172.16.1.113&#10;172.16.1.100-120&#10;172.16.2.0/24"></textarea>
-    <div class="hint">줄바꿈/콤마/공백 구분 · 범위 <code>172.16.1.100-120</code> · 대역 <code>172.16.1.0/24</code></div>
-    <div class="row"><button class="pri" id="add">목록에 추가</button></div>
+    <div class="hint">Separate with newlines, commas or spaces · Range <code>172.16.1.100-120</code> · Subnet <code>172.16.1.0/24</code></div>
+    <div class="row"><button class="pri" id="add">Add to list</button></div>
   </section>
 
   <section class="card">
-    <h2>적용할 Picture Mode</h2>
+    <h2>Picture Mode to apply</h2>
     <select id="mode"></select>
   </section>
 
   <section class="card">
-    <h2>TV 목록 <span id="count"></span></h2>
+    <h2>TV list <span id="count"></span></h2>
     <div id="list"></div>
     <div class="row">
-      <button id="selAll">전체 선택/해제</button>
-      <button id="retry">실패 항목만 선택</button>
-      <button id="clear">전체 삭제</button>
+      <button id="selAll">Select / deselect all</button>
+      <button id="retry">Select failed only</button>
+      <button id="clear">Delete all</button>
     </div>
   </section>
 
   <section class="card">
-    <h2>로그 (TV 응답 / 오류)</h2>
+    <h2>Log (TV responses / errors)</h2>
     <pre id="term"></pre>
     <div class="row">
-      <button id="copyLog">로그 복사</button>
-      <button id="clearLog">지우기</button>
+      <button id="copyLog">Copy log</button>
+      <button id="clearLog">Clear</button>
     </div>
-    <div class="hint"><span style="color:#79c0ff">→ 보냄</span> · <span style="color:#7ee787">← 받음</span> · <span style="color:#ff7b72">오류</span> (페어링 키는 가려서 표시)</div>
+    <div class="hint"><span style="color:#79c0ff">→ sent</span> · <span style="color:#7ee787">← received</span> · <span style="color:#ff7b72">error</span> (pairing keys are masked)</div>
   </section>
 
   <details class="card cert">
-    <summary>처음 사용 전 꼭 읽기 (인증서 허용)</summary>
-    <p>TV는 자체 서명 인증서를 쓰기 때문에, 브라우저가 처음 한 번은 허용해야 연결됩니다.
-    TV 목록의 <b>인증서 허용</b> 링크를 열고 "고급 → 계속 진행"을 누른 뒤 이 페이지로 돌아오세요 (TV별 1회).
-    이후 처음 적용할 때 TV 화면에 뜨는 승인 창을 리모컨으로 허용하면 페어링 키가 이 브라우저에 저장됩니다.</p>
-    <p>브라우저가 "로컬 네트워크 접근" 허용을 물으면 허용하세요. 페어링 키·IP 목록은 이 브라우저(localStorage)에만 저장되고 외부로 전송되지 않습니다.</p>
+    <summary>Read before first use (certificate)</summary>
+    <p>TVs use a self-signed certificate, so the browser must allow it once per TV.
+    Open the <b>Allow certificate</b> link in the TV list, choose "Advanced → Proceed", then come back to this page.
+    On the first apply, approve the prompt shown on the TV with the remote; the pairing key is then saved in this browser.</p>
+    <p>If the browser asks for "local network access", allow it. Pairing keys and the IP list are stored only in this browser (localStorage) and are never sent anywhere else.</p>
   </details>
 </main>
 
 <div class="bar"><div class="in">
   <span class="sum" id="sum"></span>
-  <button class="pri" id="apply">선택 항목 적용</button>
+  <button class="pri" id="apply">Apply to selected</button>
 </div></div>
 
 <script>
@@ -102,7 +105,8 @@ const store = {
   get(k, d){ try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
   set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
-let tvs = store.get("tvs", []);      // [{ip, sel, status, msg}]
+const LEGACY = {"대기":"Pending","진행":"Running","성공":"OK","실패":"Failed"};
+let tvs = store.get("tvs", []).map(t => ({...t, status: LEGACY[t.status] || t.status, msg: LEGACY[t.status] ? "" : t.msg}));      // [{ip, sel, status, msg}]
 let keys = store.get("keys", {});    // {ip: clientKey}
 let running = false;
 
@@ -110,7 +114,7 @@ $("mode").innerHTML = MODES.map(m => `<option>${m}</option>`).join("");
 $("mode").value = store.get("mode", "filmMaker");
 $("mode").onchange = () => store.set("mode", $("mode").value);
 
-// ---------- IP 파싱
+// ---------- IP parsing
 function parseIps(text){
   const ips = [], bad = [];
   for (const t of text.split(/[\s,;]+/).filter(Boolean)){
@@ -132,7 +136,7 @@ function parseIps(text){
   return {ips, bad};
 }
 
-// ---------- 로그 터미널
+// ---------- Log terminal
 const term = $("term");
 const hhmmss = () => new Date().toTimeString().slice(0, 8);
 function log(ip, kind, text){
@@ -145,33 +149,46 @@ function log(ip, kind, text){
   while (term.childElementCount > 1000) term.firstChild.remove();
   term.scrollTop = term.scrollHeight;
 }
-// 페어링 키/서명은 로그에 남기지 않음
+// Pairing keys/signatures are never written to the log
 const redact = s => s.replace(/("client-key"\s*:\s*")[^"]*"/g, '$1***"').replace(/("signature"\s*:\s*")[^"]*"/g, '$1***"');
 $("clearLog").onclick = () => term.replaceChildren();
 $("copyLog").onclick = async () => {
-  try { await navigator.clipboard.writeText(term.innerText); $("copyLog").textContent = "복사됨"; }
-  catch { const r = document.createRange(); r.selectNodeContents(term); getSelection().removeAllRanges(); getSelection().addRange(r); $("copyLog").textContent = "선택됨 (Ctrl+C)"; }
-  setTimeout(() => $("copyLog").textContent = "로그 복사", 1500);
+  try { await navigator.clipboard.writeText(term.innerText); $("copyLog").textContent = "Copied"; }
+  catch { const r = document.createRange(); r.selectNodeContents(term); getSelection().removeAllRanges(); getSelection().addRange(r); $("copyLog").textContent = "Selected (Ctrl+C)"; }
+  setTimeout(() => $("copyLog").textContent = "Copy log", 1500);
 };
 log("page", "in", `${location.origin || location.protocol} · ${navigator.userAgent}`);
 
-// PC의 tv_bridge.py 로 접속했으면(같은 출처에 /api 존재) TV 통신을 서버가 대신함 → 인증서/브라우저 제한 없음
+// When opened via the PC's tv_bridge.py (same-origin /api exists) the server talks to the TV → no certificate/browser restrictions
 let bridge = false;
 fetch("api/ping").then(r => r.ok ? r.json() : null).then(j => {
   if (j?.bridge){
     bridge = true;
-    log("page", "in", "브리지 모드: PC 서버(tv_bridge.py)가 TV와 통신합니다. 인증서 허용 불필요.");
-    $("sub").textContent = "브리지 모드 — 인증서 허용 없이 PC 서버를 통해 적용";
+    log("page", "in", "Bridge mode: the PC server (tv_bridge.py) talks to the TVs. No certificate step needed.");
+    $("sub").textContent = "Bridge mode — applied through the PC server, no certificate step";
     document.body.classList.add("bridge");
   }
-}).catch(() => {});
+  else showHttpsWarning();
+}).catch(showHttpsWarning);
+
+// On an https page (e.g. GitHub Pages) the browser must be told to trust every TV certificate and may block
+// local network access. Point the user to the relay/bridge, which avoids the "connection is not private" warning.
+function showHttpsWarning(){
+  if (location.protocol !== "https:") return;
+  $("warn").innerHTML = "<b>Certificate warnings ahead.</b> This page is served over https, so the browser shows " +
+    "\"Your connection is not private\" for every TV. Avoid it: run <code>node webos-relay.js</code> " +
+    "(or <code>python tv_bridge.py</code>) on a PC and open <code>http://&lt;PC IP&gt;:8090</code> (or <code>http://localhost:8765</code>) instead. " +
+    "If you continue here, use each TV's <b>Allow certificate</b> link once.";
+  $("warn").classList.add("show");
+  log("page", "in", "Served over https: certificate warnings expected. Use the relay/bridge over http to avoid them.");
+}
 
 async function applyViaBridge(ip, mode, progress){
-  progress("PC 서버 경유 적용 중...");
+  progress("Applying via PC server...");
   const r = await fetch("api/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ip, mode})});
   const d = await r.json();
   (d.log || []).forEach(([kind, text]) => log(ip, kind, text));
-  if (!d.ok) throw new Error(d.error || "실패");
+  if (!d.ok) throw new Error(d.error || "Failed");
   return d.mode;
 }
 
@@ -183,7 +200,7 @@ function applyMode(ip, mode, progress){
     const send = obj => { const s = JSON.stringify(obj); log(ip, "tx", redact(s)); ws.send(s); };
     const finish = (err, val) => {
       if (done) return; done = true; clearTimeout(timer);
-      err ? log(ip, "er", err.message) : log(ip, "in", `완료: pictureMode = ${val}`);
+      err ? log(ip, "er", err.message) : log(ip, "in", `Done: pictureMode = ${val}`);
       try { ws.close(); } catch {}
       err ? reject(err) : resolve(val);
     };
@@ -193,72 +210,72 @@ function applyMode(ip, mode, progress){
       send({id, type:"request", uri:"ssap://" + uri, payload});
     });
 
-    progress("연결 중...");
+    progress("Connecting...");
     const url = `wss://${ip}:3001`;
-    log(ip, "in", `연결 시도 ${url} (저장된 키: ${keys[ip] ? "있음" : "없음 → 첫 페어링"})`);
+    log(ip, "in", `Connecting to ${url} (saved key: ${keys[ip] ? "yes" : "no → first pairing"})`);
     try { ws = new WebSocket(url); } catch (e) { return finish(e); }
-    arm(CONNECT_MS, "연결 시간 초과 — 브라우저가 로컬 네트워크 접근을 막았을 수 있음. tv_bridge.py 로 접속하면 해결됩니다");
+    arm(CONNECT_MS, "Connection timed out — the browser may be blocking local network access. Opening the page through tv_bridge.py avoids this");
 
     ws.onerror = () => {
-      log(ip, "er", "WebSocket error (브라우저는 상세 원인을 알려주지 않음)");
-      log(ip, "in", `힌트: 새 탭에서 https://${ip}:3001 을 열어 인증서를 허용했는지, "로컬 네트워크 접근"을 허용했는지, TV 전원/같은 네트워크인지 확인`);
-      finish(new Error("연결 실패 — 인증서 미허용/TV 꺼짐/네트워크 차단"));
+      log(ip, "er", "WebSocket error (the browser does not expose the detailed cause)");
+      log(ip, "in", `Hint: check that you opened https://${ip}:3001 in a new tab and allowed the certificate, allowed "local network access", and that the TV is on and on the same network`);
+      finish(new Error("Connection failed — certificate not allowed / TV off / network blocked"));
     };
     ws.onclose = ev => {
-      log(ip, done ? "in" : "er", `연결 종료 code=${ev.code} reason=${ev.reason || "-"} clean=${ev.wasClean}`);
-      finish(new Error(`연결이 끊어짐 (code ${ev.code})`));
+      log(ip, done ? "in" : "er", `Closed code=${ev.code} reason=${ev.reason || "-"} clean=${ev.wasClean}`);
+      finish(new Error(`Connection closed (code ${ev.code})`));
     };
     ws.onopen = () => {
-      log(ip, "in", "연결됨, 등록 요청 전송");
+      log(ip, "in", "Connected, sending registration request");
       const reg = JSON.parse(JSON.stringify(REGISTRATION));
       if (keys[ip]) reg.payload["client-key"] = keys[ip];
-      arm(REQ_MS, "등록 응답 없음");
+      arm(REQ_MS, "No registration response");
       send(reg);
     };
     ws.onmessage = async ev => {
       log(ip, "rx", redact(String(ev.data)));
       let msg;
-      try { msg = JSON.parse(ev.data); } catch { return log(ip, "er", "JSON이 아닌 응답"); }
+      try { msg = JSON.parse(ev.data); } catch { return log(ip, "er", "Response is not JSON"); }
       if (pending[msg.id]) { const r = pending[msg.id]; delete pending[msg.id]; return r(msg); }
       if (msg.type === "response" && msg.payload?.pairingType === "PROMPT"){
-        progress("TV 화면에서 승인 대기 중...");
-        return arm(PAIR_MS, "승인 시간 초과 (TV에서 허용 안 함)");
+        progress("Waiting for approval on the TV screen...");
+        return arm(PAIR_MS, "Approval timed out (not allowed on the TV)");
       }
       if (msg.type === "registered"){
         keys[ip] = msg.payload["client-key"]; store.set("keys", keys);
         try {
-          progress("설정 변경 중..."); arm(REQ_MS * 2, "설정 응답 없음");
+          progress("Changing setting..."); arm(REQ_MS * 2, "No response to setting change");
           const set = await request(1, "settings/setSystemSettings", {category:"picture", settings:{pictureMode: mode}});
-          if (!set.payload?.returnValue) return finish(new Error("설정 거부됨: " + JSON.stringify(set.payload)));
+          if (!set.payload?.returnValue) return finish(new Error("Setting rejected: " + JSON.stringify(set.payload)));
           const get = await request(2, "settings/getSystemSettings", {keys:["pictureMode"], category:"picture"});
           finish(null, get.payload?.settings?.pictureMode ?? "?");
         } catch (e) { finish(e); }
       } else if (msg.type === "error"){
-        finish(new Error(msg.error || "TV 오류"));
+        finish(new Error(msg.error || "TV error"));
       }
     };
   });
 }
 
-// ---------- 화면
+// ---------- UI
 function save(){ store.set("tvs", tvs.map(({ip, sel, status, msg}) => ({ip, sel, status, msg}))); }
 function render(){
-  $("count").textContent = tvs.length ? `(${tvs.length}대)` : "";
+  $("count").textContent = tvs.length ? `(${tvs.length})` : "";
   $("list").innerHTML = tvs.length ? tvs.map((t, i) => `
     <div class="tv">
       <input type="checkbox" style="width:auto" data-i="${i}" ${t.sel ? "checked" : ""} ${running ? "disabled" : ""}>
       <div class="info">
         <div class="ip">${t.ip}</div>
-        <div class="msg">${t.msg || ""} <a href="https://${t.ip}:3001" target="_blank" rel="noopener">인증서 허용</a></div>
+        <div class="msg">${t.msg || ""} <a href="https://${t.ip}:3001" target="_blank" rel="noopener">Allow certificate</a></div>
       </div>
       <span class="badge st-${t.status}">${t.status}</span>
       <button class="x" data-del="${i}" ${running ? "disabled" : ""}>×</button>
-    </div>`).join("") : `<div class="hint">추가된 TV가 없습니다.</div>`;
-  const ok = tvs.filter(t => t.status === "성공").length, fail = tvs.filter(t => t.status === "실패").length;
+    </div>`).join("") : `<div class="hint">No TVs added yet.</div>`;
+  const ok = tvs.filter(t => t.status === "OK").length, fail = tvs.filter(t => t.status === "Failed").length;
   const sel = tvs.filter(t => t.sel).length;
-  $("sum").textContent = `선택 ${sel} · 성공 ${ok} · 실패 ${fail}`;
+  $("sum").textContent = `Selected ${sel} · OK ${ok} · Failed ${fail}`;
   $("apply").disabled = running || !sel;
-  $("apply").textContent = running ? "적용 중..." : "선택 항목 적용";
+  $("apply").textContent = running ? "Applying..." : "Apply to selected";
 }
 
 $("list").onchange = e => { const i = e.target.dataset.i; if (i != null){ tvs[i].sel = e.target.checked; save(); render(); } };
@@ -266,19 +283,19 @@ $("list").onclick = e => { const i = e.target.dataset.del; if (i != null){ tvs.s
 
 $("add").onclick = () => {
   const {ips, bad} = parseIps($("ips").value);
-  for (const ip of ips) if (!tvs.some(t => t.ip === ip)) tvs.push({ip, sel:true, status:"대기", msg:""});
+  for (const ip of ips) if (!tvs.some(t => t.ip === ip)) tvs.push({ip, sel:true, status:"Pending", msg:""});
   save(); render();
-  if (bad.length) alert("인식하지 못한 항목:\n" + bad.join("\n")); else $("ips").value = "";
+  if (bad.length) alert("Unrecognized entries:\n" + bad.join("\n")); else $("ips").value = "";
 };
 $("selAll").onclick = () => { const on = !tvs.every(t => t.sel); tvs.forEach(t => t.sel = on); save(); render(); };
-$("retry").onclick = () => { tvs.forEach(t => t.sel = t.status === "실패"); save(); render(); };
-$("clear").onclick = () => { if (!running && tvs.length && confirm("목록을 모두 삭제할까요?")){ tvs = []; save(); render(); } };
+$("retry").onclick = () => { tvs.forEach(t => t.sel = t.status === "Failed"); save(); render(); };
+$("clear").onclick = () => { if (!running && tvs.length && confirm("Delete the whole list?")){ tvs = []; save(); render(); } };
 
 $("apply").onclick = async () => {
   const mode = $("mode").value, targets = tvs.filter(t => t.sel);
   if (!targets.length) return;
   running = true;
-  targets.forEach(t => { t.status = "대기"; t.msg = ""; });
+  targets.forEach(t => { t.status = "Pending"; t.msg = ""; });
   render();
   const queue = [...targets];
   const worker = async () => {
@@ -286,9 +303,9 @@ $("apply").onclick = async () => {
       const t = queue.shift();
       const upd = (status, msg) => { t.status = status; t.msg = msg; render(); };
       try {
-        const got = await applyMode(t.ip, mode, m => upd("진행", m));
-        got === mode ? upd("성공", `pictureMode = ${got}`) : upd("실패", `불일치: 요청 ${mode} / 현재 ${got}`);
-      } catch (e) { upd("실패", e.message); }
+        const got = await applyMode(t.ip, mode, m => upd("Running", m));
+        got === mode ? upd("OK", `pictureMode = ${got}`) : upd("Failed", `Mismatch: requested ${mode} / current ${got}`);
+      } catch (e) { upd("Failed", e.message); }
     }
   };
   await Promise.all(Array.from({length: Math.min(MAX_PARALLEL, targets.length)}, worker));
