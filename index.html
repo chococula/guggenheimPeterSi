@@ -274,7 +274,12 @@ function applyMode(ip, settings, progress){
           finish(null, describe(settings));
         } catch (e) { finish(e); }
       } else if (msg.type === "error"){
-        finish(new Error(msg.error || "TV error"));
+        const text = msg.error || "TV error";
+        if (/blacklisted certificate/i.test(text)){
+          log(ip, "in", "This TV's firmware blocks the test signing certificate this tool registers with. It is not caused by the network or this page. Get an LG-approved signed registration manifest for this firmware, or compare the firmware version with TVs that work.");
+          return finish(new Error(`${text} - this TV's firmware rejects the test signing certificate (needs an approved signed manifest)`));
+        }
+        finish(new Error(text));
       }
     };
   });
