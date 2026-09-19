@@ -57,8 +57,9 @@
   </section>
 
   <section class="card">
-    <h2>Picture Mode to apply</h2>
+    <h2>Profile to apply</h2>
     <select id="mode"></select>
+    <div class="hint" id="profDesc"></div>
   </section>
 
   <section class="card">
@@ -110,9 +111,20 @@ let tvs = store.get("tvs", []).map(t => ({...t, status: LEGACY[t.status] || t.st
 let keys = store.get("keys", {});    // {ip: clientKey}
 let running = false;
 
-$("mode").innerHTML = MODES.map(m => `<option>${m}</option>`).join("");
-$("mode").value = store.get("mode", "filmMaker");
-$("mode").onchange = () => store.set("mode", $("mode").value);
+// A profile is an ordered list of [key, value] picture settings. The Picture Mode goes first because the
+// other picture settings belong to the currently selected mode.
+const PROFILES = {
+  Guggenheim: [["pictureMode", "filmMaker"], ["peakBrightness", "high"], ["colorGamut", "dci-p3"]],
+};
+const profileSettings = id => id.startsWith("mode:") ? [["pictureMode", id.slice(5)]] : PROFILES[id];
+const describe = st => st.map(([k, v]) => `${k} = ${v}`).join(" · ");
+$("mode").innerHTML = Object.keys(PROFILES).map(n => `<option value="${n}">${n} profile</option>`).join("") +
+  MODES.map(m => `<option value="mode:${m}">Picture Mode only: ${m}</option>`).join("");
+$("mode").value = store.get("profile", "Guggenheim");
+if (!$("mode").value) $("mode").value = "Guggenheim";
+const showDesc = () => { $("profDesc").textContent = describe(profileSettings($("mode").value)); };
+$("mode").onchange = () => { store.set("profile", $("mode").value); showDesc(); };
+showDesc();
 
 // ---------- IP parsing
 function parseIps(text){
@@ -183,24 +195,24 @@ function showHttpsWarning(){
   log("page", "in", "Served over https: certificate warnings expected. Use the relay/bridge over http to avoid them.");
 }
 
-async function applyViaBridge(ip, mode, progress){
+async function applyViaBridge(ip, settings, progress){
   progress("Applying via PC server...");
-  const r = await fetch("api/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ip, mode})});
+  const r = await fetch("api/apply", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ip, settings})});
   const d = await r.json();
   (d.log || []).forEach(([kind, text]) => log(ip, kind, text));
   if (!d.ok) throw new Error(d.error || "Failed");
-  return d.mode;
+  return d.summary;
 }
 
-function applyMode(ip, mode, progress){
-  if (bridge) return applyViaBridge(ip, mode, progress);
+function applyMode(ip, settings, progress){
+  if (bridge) return applyViaBridge(ip, settings, progress);
   return new Promise((resolve, reject) => {
     let ws, done = false, timer;
     const pending = {};
     const send = obj => { const s = JSON.stringify(obj); log(ip, "tx", redact(s)); ws.send(s); };
     const finish = (err, val) => {
       if (done) return; done = true; clearTimeout(timer);
-      err ? log(ip, "er", err.message) : log(ip, "in", `Done: pictureMode = ${val}`);
+      err ? log(ip, "er", err.message) : log(ip, "in", `Done: ${val}`);
       try { ws.close(); } catch {}
       err ? reject(err) : resolve(val);
     };
@@ -244,11 +256,18 @@ function applyMode(ip, mode, progress){
       if (msg.type === "registered"){
         keys[ip] = msg.payload["client-key"]; store.set("keys", keys);
         try {
-          progress("Changing setting..."); arm(REQ_MS * 2, "No response to setting change");
-          const set = await request(1, "settings/setSystemSettings", {category:"picture", settings:{pictureMode: mode}});
-          if (!set.payload?.returnValue) return finish(new Error("Setting rejected: " + JSON.stringify(set.payload)));
-          const get = await request(2, "settings/getSystemSettings", {keys:["pictureMode"], category:"picture"});
-          finish(null, get.payload?.settings?.pictureMode ?? "?");
+          let rid = 0;
+          for (const [k, v] of settings){
+            progress(`Setting ${k} = ${v}...`); arm(REQ_MS * 2, `No response when setting ${k}`);
+            const set = await request(++rid, "settings/setSystemSettings", {category:"picture", settings:{[k]: v}});
+            if (!set.payload?.returnValue) return finish(new Error(`${k} = ${v} rejected by TV: ${JSON.stringify(set.payload)}`));
+          }
+          progress("Verifying..."); arm(REQ_MS * 2, "No response when verifying");
+          const get = await request(++rid, "settings/getSystemSettings", {keys: settings.map(([k]) => k), category:"picture"});
+          const cur = get.payload?.settings ?? {};
+          const bad = settings.filter(([k, v]) => cur[k] !== v);
+          if (bad.length) return finish(new Error("Mismatch: " + bad.map(([k, v]) => `${k} wanted ${v}, TV has ${cur[k]}`).join("; ")));
+          finish(null, describe(settings));
         } catch (e) { finish(e); }
       } else if (msg.type === "error"){
         finish(new Error(msg.error || "TV error"));
@@ -266,7 +285,7 @@ function render(){
       <input type="checkbox" style="width:auto" data-i="${i}" ${t.sel ? "checked" : ""} ${running ? "disabled" : ""}>
       <div class="info">
         <div class="ip">${t.ip}</div>
-        <div class="msg">${t.msg || ""} <a href="https://${t.ip}:3001" target="_blank" rel="noopener">Allow certificate</a></div>
+        <div class="msg">${t.msg || ""} <a href="https://${t.ip}:3001" target="_blank" rel="noopener">Allow certificate</a> <span class="hint">(or paste https://${t.ip}:3001 into a new tab)</span></div>
       </div>
       <span class="badge st-${t.status}">${t.status}</span>
       <button class="x" data-del="${i}" ${running ? "disabled" : ""}>×</button>
@@ -292,7 +311,7 @@ $("retry").onclick = () => { tvs.forEach(t => t.sel = t.status === "Failed"); sa
 $("clear").onclick = () => { if (!running && tvs.length && confirm("Delete the whole list?")){ tvs = []; save(); render(); } };
 
 $("apply").onclick = async () => {
-  const mode = $("mode").value, targets = tvs.filter(t => t.sel);
+  const settings = profileSettings($("mode").value), targets = tvs.filter(t => t.sel);
   if (!targets.length) return;
   running = true;
   targets.forEach(t => { t.status = "Pending"; t.msg = ""; });
@@ -303,8 +322,7 @@ $("apply").onclick = async () => {
       const t = queue.shift();
       const upd = (status, msg) => { t.status = status; t.msg = msg; render(); };
       try {
-        const got = await applyMode(t.ip, mode, m => upd("Running", m));
-        got === mode ? upd("OK", `pictureMode = ${got}`) : upd("Failed", `Mismatch: requested ${mode} / current ${got}`);
+        upd("OK", await applyMode(t.ip, settings, m => upd("Running", m)));
       } catch (e) { upd("Failed", e.message); }
     }
   };
