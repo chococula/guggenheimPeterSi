@@ -235,6 +235,10 @@ function applyMode(ip, settings, progress){
     };
     ws.onclose = ev => {
       log(ip, done ? "in" : "er", `Closed code=${ev.code} reason=${ev.reason || "-"} clean=${ev.wasClean}`);
+      if (ev.code === 1008 || /origin/i.test(ev.reason || "")){
+        log(ip, "in", `The TV rejects connections from this page's origin (${location.origin}). A browser page cannot change that. Run the relay/bridge on a PC (node webos-relay.js or python tv_bridge.py) and open it over http, e.g. http://localhost:8090`);
+        return finish(new Error(`TV rejected this page's origin (${location.origin}) - use the relay/bridge instead`));
+      }
       finish(new Error(`Connection closed (code ${ev.code})`));
     };
     ws.onopen = () => {
